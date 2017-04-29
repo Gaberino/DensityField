@@ -5,9 +5,23 @@ using System;
 
 public class MapGenerator : MonoBehaviour {
 
+	public GameObject shopPrefab;
+	public GameObject playerPrefab;
+
+	public float rockyRatio; //spawn ratios
+	public float icyRatio;
+	public float hotRatio;
+
+	public float rockyDensity; //planetoid type density (mass)
+	public float icyDensity;
+	public float hotDensity;
+
 	public int mapWidth; //how wide our generation map is
 	public int mapHeight; //how tall it is
-	public int smoothPasses = 1; //how many times we should execute the smoothing function. We probably want it to be zero, but maybe increase depending on size?
+	public int smoothPasses = 1; //how many times we should execute the smoothing function. We probably want it to be zero, but maybe increase depending on size/fillpercent?
+
+	public GameObject PlanetoidPrefab;
+	public float planetSpacing = 20f; //how far apart spaces in the grid are when spawning planets
 
 	public string seed; //what we generate the level from
 	public bool useRandomSeed; //whether or not the seed should be random. Do this if seed is left empty in menu
@@ -34,16 +48,26 @@ public class MapGenerator : MonoBehaviour {
 		}
 		GenerateMap(); //base map
 		GeneratePlanetPass(); //conversion and placement of game objects
+		DesignateStartingPlanet ();
+		InitializeRemainingPlanets ();
 	}
 
 	void Update() {
-		if (Input.GetKeyDown(KeyCode.Space)) { //debug stuff for testing generation with random seed on
-			SmoothMap();
-		}
-		else if (Input.GetMouseButtonDown(0)){
-			GenerateMap();
-			GeneratePlanetPass();
-		}
+//		if (Input.GetKeyDown(KeyCode.Space)) { //debug stuff for testing generation with random seed on
+//			SmoothMap();
+//		}
+//		else if (Input.GetMouseButtonDown(0)){
+//			for (int x = 0; x < mapWidth; x++){
+//				for (int y = 0; y < mapHeight; y++){
+//					mapChecks[x,y] = false;
+//				}
+//			}
+//			for (int i = 0; i < GameObject.FindGameObjectsWithTag ("Planetoid").Length; i++) {
+//				Destroy (GameObject.FindGameObjectsWithTag ("Planetoid")[i]);
+//			}
+//			GenerateMap();
+//			GeneratePlanetPass();
+//		}
 	}
 
 	void GenerateMap() {
@@ -84,9 +108,6 @@ public class MapGenerator : MonoBehaviour {
 				}
 			}
 		}
-		foreach (var item in planetPassMap){
-			Debug.Log(item);
-		}
 	}
 
 	bool CheckCoord(int x, int y){
@@ -118,35 +139,70 @@ public class MapGenerator : MonoBehaviour {
 		planetGridCoord = planetGridCoord / planetSize; //average the grid positions
 		planetGridCoord = new Vector2 (Mathf.RoundToInt(planetGridCoord.x), Mathf.RoundToInt(planetGridCoord.y));
 		PlacePlanet(planetGridCoord, planetSize);
-
 	}
 
 	void CheckAdjacency(int x, int y){ //need to add diagonal checks?
-		if (x < mapWidth - 1){
-			if (CheckCoord(x + 1, y)){
+		//bools which become true based on initial adjacency checks to enable diagonal checks
+		bool canCheckRight = false;
+		bool canCheckLeft = false;
+		bool canCheckUp = false;
+		bool canCheckDown = false;
+
+		if (x < mapWidth - 1){ //not on right border
+			if (CheckCoord(x + 1, y)){//check right
 				coordsInCheckChain.Enqueue(new Vector2(x + 1, y));
+				canCheckRight = true;
 			}
 		}
-		if (x > 0){
-			if (CheckCoord(x - 1, y)){
+		if (x > 0){//not on left border
+			if (CheckCoord(x - 1, y)){//check left
 				coordsInCheckChain.Enqueue(new Vector2(x - 1, y));
+				canCheckLeft = true;
 			}
 		}
-		if (y < mapHeight - 1){
-			if (CheckCoord(x, y + 1)){
+		if (y < mapHeight - 1){//not on top border
+			if (CheckCoord(x, y + 1)){//check above
 				coordsInCheckChain.Enqueue(new Vector2(x, y + 1));
+				canCheckUp = true;
 			}
 		}
-		if (y > 0){
-			if (CheckCoord(x, y - 1)){
+		if (y > 0){//not on bottom border
+			if (CheckCoord(x, y - 1)){//check below
 				coordsInCheckChain.Enqueue(new Vector2(x, y - 1));
+				canCheckDown = true;
+			}
+		}
+
+		//diagonal checking section
+		if (canCheckRight && canCheckUp) {
+			if (CheckCoord(x + 1, y + 1)){//check up right
+				coordsInCheckChain.Enqueue(new Vector2(x + 1, y + 1));
+			}
+		}
+		if (canCheckRight && canCheckDown) {
+			if (CheckCoord(x + 1, y - 1)){//check down right
+				coordsInCheckChain.Enqueue(new Vector2(x + 1, y - 1));
+			}
+		}
+		if (canCheckLeft && canCheckUp) {
+			if (CheckCoord(x - 1, y + 1)){//check up left
+				coordsInCheckChain.Enqueue(new Vector2(x - 1, y + 1));
+			}
+		}
+		if (canCheckLeft && canCheckDown) {
+			if (CheckCoord(x - 1, y - 1)){//check down left
+				coordsInCheckChain.Enqueue(new Vector2(x - 1, y - 1));
 			}
 		}
 	}
 
-	void PlacePlanet (Vector2 gridSpace, int size){ //populates planet grid map data and places vanilla planets without size
+	void PlacePlanet (Vector2 gridSpace, int size){ //populates planet grid map data and instantiates vanilla planets of the correct size
 		planetPassMap[(int)gridSpace.x, (int)gridSpace.y] = size;
-		//create the planet below
+		//now make the game object
+		GameObject newPlanet = (GameObject)Instantiate(PlanetoidPrefab, new Vector3((-mapWidth/2 + gridSpace.x + .5f) * planetSpacing, (-mapHeight/2 + gridSpace.y +.5f) * planetSpacing, 0), Quaternion.identity);
+		newPlanet.transform.localScale = new Vector3(size, size, size);
+		Planetoid newPlanetData = newPlanet.GetComponent<Planetoid> ();
+		newPlanetData.sizeClass = size;
 	}
 
 	void SmoothMap() {
@@ -181,24 +237,50 @@ public class MapGenerator : MonoBehaviour {
 		return filledCount;
 	}
 
-
-	void OnDrawGizmos() {
-		if (map != null) {
-			for (int x = 0; x < mapWidth; x ++) {
-				for (int y = 0; y < mapHeight; y ++) {
-					Gizmos.color = (map[x,y] == 1)?Color.black:Color.white;
-					Vector3 pos = new Vector3(-mapWidth/2 + x + .5f,-mapHeight/2 + y+.5f, 0);
-					Gizmos.DrawCube(pos,Vector3.one);
-				}
-			}
-			for (int x = 0; x < mapWidth; x ++) {
-				for (int y = 0; y < mapHeight; y ++) {
-					Gizmos.color = (planetPassMap[x,y] > 1)?Color.black:Color.white;
-					Vector3 pos = new Vector3(-mapWidth/2 + x + .5f,-mapHeight/2 + y+.5f, 0) * 10;
-					Gizmos.DrawSphere(pos, planetPassMap[x,y]);
-				}
+	void DesignateStartingPlanet(){
+		//finds the closest planet to the center, then places the shop and player
+		GameObject chosenPlanet = null;
+		bool foundPlanet = false;
+		float searchRadius = 20f;
+		while (!foundPlanet) {
+			if (Physics2D.OverlapCircle (Vector2.zero, searchRadius) != null) {
+				//found one
+				chosenPlanet = Physics2D.OverlapCircle (Vector2.zero, searchRadius).gameObject;
+			} else {
+				//increase search area
+				searchRadius += 20f;
 			}
 		}
+		chosenPlanet.GetComponent<Planetoid> ().IsStartingPlanet = true;
+
+		//instantiate shop
+		GameObject homeShop = (GameObject)Instantiate(shopPrefab, chosenPlanet.transform);
+		homeShop.transform.localPosition += Vector3.up * (chosenPlanet.transform.localScale.y + homeShop.transform.localScale.y / 2);
+		//instantiate player at shop location
+		GameObject player = (GameObject)Instantiate(playerPrefab, homeShop.transform.position, Quaternion.identity);
 	}
+
+	void InitializeRemainingPlanets(){ //fills out the molecule density and mass of the remaining planetoids, designates type based on ratio, and 
+
+	}
+
+//	void OnDrawGizmos() {
+//		if (map != null) {
+//			for (int x = 0; x < mapWidth; x ++) {
+//				for (int y = 0; y < mapHeight; y ++) {
+//					Gizmos.color = (map[x,y] == 1)?Color.black:Color.white;
+//					Vector3 pos = new Vector3(-mapWidth/2 + x + .5f,-mapHeight/2 + y+.5f, 0);
+//					Gizmos.DrawCube(pos,Vector3.one);
+//				}
+//			}
+//			for (int x = 0; x < mapWidth; x ++) {
+//				for (int y = 0; y < mapHeight; y ++) {
+//					Gizmos.color = (planetPassMap[x,y] > 1)?Color.black:Color.white;
+//					Vector3 pos = new Vector3(-mapWidth/2 + x + .5f,-mapHeight/2 + y+.5f, 0) * 20;
+//					Gizmos.DrawSphere(pos, planetPassMap[x,y]);
+//				}
+//			}
+//		}
+//	}
 
 }
