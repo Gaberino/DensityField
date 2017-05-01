@@ -5,16 +5,38 @@ using System;
 
 public class MapGenerator : MonoBehaviour {
 
+	public static MapGenerator Instance;
+
 	public GameObject shopPrefab;
-	public GameObject playerPrefab;
+	public Transform preloadedPlayerTransform; //must be preloaded in scene so we can call the tether creation method when designating its position
 
-	public float rockyRatio; //spawn ratios
-	public float icyRatio;
-	public float hotRatio;
+	public PhysicsMaterial2D rockyMaterial;
+	public PhysicsMaterial2D icyMaterial;
+	public PhysicsMaterial2D hotMaterial;
 
-	public float rockyDensity; //planetoid type density (mass)
-	public float icyDensity;
-	public float hotDensity;
+	public int rockyRatio; //spawn ratios
+	public int icyRatio;
+	public int hotRatio;
+
+	public int rockyDensity; //planetoid type density (mass)
+	public int icyDensity;
+	public int hotDensity;
+
+	public float totalMassInLevel; //total mass in level excluding starting planet, since it cannot be mined
+	[Range(0, 100)]
+	public float percentageToMine; //a difficulty variable. What percent of the total the mass we should consider the "minimum" to complete the level
+	public int minimumMineVariable; //the resulting number
+	[Range(0, 100)]
+	public float percentageToPricing; //what percent of the minimum mining amount we should call 1 "unit" of price
+	public int basePrice; //the resulting number
+
+	public Color hotColor;
+	public Color icyColor;
+	public Color rockyColor;
+
+	public string hotString;
+	public string icyString;
+	public string rockyString;
 
 	public int mapWidth; //how wide our generation map is
 	public int mapHeight; //how tall it is
@@ -36,6 +58,7 @@ public class MapGenerator : MonoBehaviour {
 	Queue<Vector2> coordsInCheckChain; //the queue we use to perform adjacency checks when transferring from the base map to the planet map
 
 	void Start() {
+		Instance = this;
 		//initialize containers
 		coordsInCheckChain = new Queue<Vector2>();
 		mapChecks = new bool[mapWidth,mapHeight];
@@ -52,7 +75,7 @@ public class MapGenerator : MonoBehaviour {
 		InitializeRemainingPlanets ();
 	}
 
-	void Update() {
+///	void Update() {
 //		if (Input.GetKeyDown(KeyCode.Space)) { //debug stuff for testing generation with random seed on
 //			SmoothMap();
 //		}
@@ -68,7 +91,7 @@ public class MapGenerator : MonoBehaviour {
 //			GenerateMap();
 //			GeneratePlanetPass();
 //		}
-	}
+//	}
 
 	void GenerateMap() {
 		map = new int[mapWidth,mapHeight]; //initialize map
@@ -135,7 +158,6 @@ public class MapGenerator : MonoBehaviour {
 			CheckAdjacency((int)tempVector.x, (int)tempVector.y); //do the adjacency check
 			planetSize += 1;
 		}
-		Debug.Log("I'm fucking right here you pompous ass");
 		planetGridCoord = planetGridCoord / planetSize; //average the grid positions
 		planetGridCoord = new Vector2 (Mathf.RoundToInt(planetGridCoord.x), Mathf.RoundToInt(planetGridCoord.y));
 		PlacePlanet(planetGridCoord, planetSize);
@@ -203,6 +225,7 @@ public class MapGenerator : MonoBehaviour {
 		newPlanet.transform.localScale = new Vector3(size, size, size);
 		Planetoid newPlanetData = newPlanet.GetComponent<Planetoid> ();
 		newPlanetData.sizeClass = size;
+		newPlanetData.PlanetoidCoords = newPlanet.transform.position;
 	}
 
 	void SmoothMap() {
@@ -246,22 +269,67 @@ public class MapGenerator : MonoBehaviour {
 			if (Physics2D.OverlapCircle (Vector2.zero, searchRadius) != null) {
 				//found one
 				chosenPlanet = Physics2D.OverlapCircle (Vector2.zero, searchRadius).gameObject;
+				foundPlanet = true;
 			} else {
 				//increase search area
 				searchRadius += 20f;
 			}
 		}
-		chosenPlanet.GetComponent<Planetoid> ().IsStartingPlanet = true;
+		Planetoid chosenPlanetoid = chosenPlanet.GetComponent<Planetoid>();
+
+		if (chosenPlanetoid.sizeClass > 3){
+			chosenPlanetoid.sizeClass = 3;
+			chosenPlanet.transform.localScale = Vector3.one * 3;
+		}
+
+		chosenPlanetoid.IsStartingPlanet = true;
+		chosenPlanetoid.moleculeDensity = hotDensity;
+		chosenPlanetoid.PlanetoidMass = Mathf.Pow(hotDensity, chosenPlanet.GetComponent<Planetoid>().sizeClass);
+		chosenPlanet.name = "StartingPlanetoid";
 
 		//instantiate shop
 		GameObject homeShop = (GameObject)Instantiate(shopPrefab, chosenPlanet.transform);
-		homeShop.transform.localPosition += Vector3.up * (chosenPlanet.transform.localScale.y + homeShop.transform.localScale.y / 2);
+		//homeShop.transform.localPosition = Vector3.zero;
+		homeShop.transform.localPosition = Vector3.up * (0.5f + (homeShop.transform.localScale.y / 2)); //in local space, 1 full unit is the whole length of the parent
 		//instantiate player at shop location
-		GameObject player = (GameObject)Instantiate(playerPrefab, homeShop.transform.position, Quaternion.identity);
+		preloadedPlayerTransform.position = homeShop.transform.position;
+		SpaceBroPlayer.Instance.AddNewTether(chosenPlanetoid, true);
+		preloadedPlayerTransform.GetComponent<PolygonCollider2D>().enabled = true;
 	}
 
 	void InitializeRemainingPlanets(){ //fills out the molecule density and mass of the remaining planetoids, designates type based on ratio, and 
-
+		int totalRange = (hotRatio + icyRatio + rockyRatio);
+		float countingMass = 0; //counts up all mass in level except the starting planet
+		System.Random pseudoRandom2 = new System.Random(seed.GetHashCode());
+		Planetoid[] allPlanetoids = FindObjectsOfType<Planetoid>();
+		for (int i = 0; i < allPlanetoids.Length; i++){
+			if (!allPlanetoids[i].IsStartingPlanet){//if it is not the starting planet, randomly set type based on ratios
+				int testNum = pseudoRandom2.Next(0, totalRange);
+				if (testNum < hotRatio){ //hot planet
+					allPlanetoids[i].moleculeDensity = hotDensity;
+					allPlanetoids[i].GetComponent<SpriteRenderer>().color = hotColor;
+					allPlanetoids[i].GetComponent<Collider2D>().sharedMaterial = hotMaterial;
+					allPlanetoids[i].gameObject.name = hotString;
+				}
+				else if (testNum < icyRatio + hotRatio){ //icy planet
+					allPlanetoids[i].moleculeDensity = icyDensity;
+					allPlanetoids[i].GetComponent<SpriteRenderer>().color = icyColor;
+					allPlanetoids[i].GetComponent<Collider2D>().sharedMaterial = icyMaterial;
+					allPlanetoids[i].gameObject.name = icyString;
+				}
+				else if (testNum < rockyRatio + icyRatio + hotRatio){ //rocky planet
+					allPlanetoids[i].moleculeDensity = rockyDensity;
+					allPlanetoids[i].GetComponent<SpriteRenderer>().color = rockyColor;
+					allPlanetoids[i].GetComponent<Collider2D>().sharedMaterial = rockyMaterial;
+					allPlanetoids[i].gameObject.name = rockyString;
+				}
+			}
+			allPlanetoids[i].PlanetoidMass = Mathf.Pow(allPlanetoids[i].moleculeDensity, allPlanetoids[i].sizeClass); //put this outside so we also have mass for starting planet
+			countingMass += allPlanetoids[i].PlanetoidMass;
+		}
+		totalMassInLevel = countingMass;
+		minimumMineVariable = Mathf.RoundToInt(totalMassInLevel * (percentageToMine / 100));
+		basePrice = Mathf.RoundToInt(minimumMineVariable * (percentageToPricing / 100));
 	}
 
 //	void OnDrawGizmos() {
@@ -273,13 +341,13 @@ public class MapGenerator : MonoBehaviour {
 //					Gizmos.DrawCube(pos,Vector3.one);
 //				}
 //			}
-//			for (int x = 0; x < mapWidth; x ++) {
-//				for (int y = 0; y < mapHeight; y ++) {
-//					Gizmos.color = (planetPassMap[x,y] > 1)?Color.black:Color.white;
-//					Vector3 pos = new Vector3(-mapWidth/2 + x + .5f,-mapHeight/2 + y+.5f, 0) * 20;
-//					Gizmos.DrawSphere(pos, planetPassMap[x,y]);
-//				}
-//			}
+////			for (int x = 0; x < mapWidth; x ++) {
+////				for (int y = 0; y < mapHeight; y ++) {
+////					Gizmos.color = (planetPassMap[x,y] > 1)?Color.black:Color.white;
+////					Vector3 pos = new Vector3(-mapWidth/2 + x + .5f,-mapHeight/2 + y+.5f, 0) * 20;
+////					Gizmos.DrawSphere(pos, planetPassMap[x,y]);
+////				}
+////			}
 //		}
 //	}
 

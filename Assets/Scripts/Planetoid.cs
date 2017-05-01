@@ -8,6 +8,8 @@ public class Planetoid : MonoBehaviour {
 	public float moleculeDensity; //baseline density of a planetoid which is exponentially increased by the size to form initial mass
 	public float PlanetoidMass; //mass of planet
 	public bool IsStartingPlanet = false;
+	public  Vector3 PlanetoidCoords;
+
 
 //	public Planetoid (int inputSize, float inputMoleculeDensity){
 //		sizeClass = inputSize;
